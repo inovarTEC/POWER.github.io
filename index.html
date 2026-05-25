@@ -18,7 +18,7 @@ const app  = initializeApp({
   appId            : "1:111779689903:web:3999844c7ccaa1ec71ab5a"
 });
 const auth = getAuth(app);
-setPersistence(auth, browserLocalPersistence);
+setPersistence(auth, browserLocalPersistence).catch(e => console.warn('[Auth] Persistência falhou:', e));
 
 window.fbMostrarRecuperacao = function() {
   document.getElementById('fb-form-login').style.display     = 'none';
@@ -1060,7 +1060,7 @@ input, select, textarea { font-size: 16px !important; font-family: var(--font-bo
 <body>
 
 <!-- TELA DE LOGIN FIREBASE -->
-<div id="fb-login-screen" style="display:none;position:fixed;inset:0;z-index:9999;background:#0f172a;flex-direction:column;align-items:center;justify-content:center;padding:24px">
+<div id="fb-login-screen" style="display:flex;position:fixed;inset:0;z-index:9999;background:#0f172a;flex-direction:column;align-items:center;justify-content:center;padding:24px">
   <div style="width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center">
 
     <div style="width:72px;height:72px;background:linear-gradient(135deg,#1e3a5f,#0f172a);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:20px;border:1px solid rgba(255,255,255,.1);box-shadow:0 8px 32px rgba(0,0,0,.4)">⚡</div>
@@ -2325,6 +2325,7 @@ const COST_PER_KM = 0.45;
 
 let appState = {
   darkMode: false,
+  matMode: 'eletricista',
   logoBase64: null,
   meusServicos: [],
   historico: [],
@@ -2373,7 +2374,7 @@ function maskPhone(input) {
   else if (v.length > 5) v = v.replace(/^(\d\d)(\d{4})(\d{0,4})/,'($1)$2-$3');
   else if (v.length > 2) v = v.replace(/^(\d\d)(\d{0,5})/,'($1)$2');
   else if (v.length === 2) v = '(' + v + ')';
-  else v = v.replace(/^(\d*)/,'($1');
+  else v = v ? '(' + v : '';
   input.value = v;
 }
 
@@ -2515,6 +2516,7 @@ function checkWarrantyAlerts() {
 function saveToHistory(dados) {
   appState.historico = appState.historico.filter(h => h.id !== dados.id);
   appState.historico.unshift(dados);
+  appState.orcamentoSeq++; // incrementa só após salvar, sem pular número
   if (appState.historico.length > 20) appState.historico.pop();
   saveState();
 }
@@ -2596,7 +2598,6 @@ function loadFromHistory(item) {
     if (me) me.style.display = mc.children.length ? 'none' : 'flex';
   }
   updateServiceBadge(); updateMaterialBadge(); updateFloatingButton();
-  showScreen('screen-input');
   showToast('Orçamento de ' + item.cliente + ' carregado!');
 }
 
@@ -3045,11 +3046,21 @@ function fecharConfigurador() {
   document.getElementById('srv-inline-search').value = '';
 }
 
+// Garante que srvCatalog/matCatalog estão populados mesmo sem abrir Ajustes
+function ensureCatalogsLoaded() {
+  if (srvCatalog.length && matCatalog.length) return;
+  srvCatalog = SRV.map((s, i) => ({...s, _id: 'srv_' + i}));
+  matCatalog = MAT.map((m, i) => ({...m, _id: 'mat_' + i}));
+  if (appState._srvCatalogEdits) srvCatalog = appState._srvCatalogEdits.map((s, i) => ({...s, _id: s._id || 'srv_' + i}));
+  if (appState._matCatalogEdits) matCatalog = appState._matCatalogEdits.map((m, i) => ({...m, _id: m._id || 'mat_' + i}));
+}
+
 function inlineSearch(type, q) {
   const inp = document.getElementById(type + '-inline-search');
   const box = document.getElementById(type + '-inline-results');
   if (!q || q.length < 1) { box.classList.remove('show'); box.innerHTML = ''; return; }
-  const data = type === 'srv' ? SRV : MAT;
+  ensureCatalogsLoaded(); // Regra 8: usa catálogo editado como fonte única de verdade
+  const data = type === 'srv' ? srvCatalog : matCatalog;
   const cats = type === 'srv' ? SRV_CATS : MAT_CATS;
   const ql = q.toLowerCase();
   const matches = data.filter(d => d.n.toLowerCase().includes(ql)).slice(0, 40);
@@ -3468,7 +3479,7 @@ function computeTotals(totalServicos, mat) {
   const custoHoras = horas * (appState.custoHora || 0);
   const matTotal = mat + custoPecasExtra;
   const subtotal = totalServicos + matTotal + custoLog + custoHoras;
-  const descontoPerc = parseFloat(document.getElementById('descontoOrc')?.value) || 0;
+  const descontoPerc = Math.min(100, Math.max(0, parseFloat(document.getElementById('descontoOrc')?.value) || 0));
   const acrescimo = parseCurrency(document.getElementById('acrescimoOrc')?.value || '0');
   const valorDesconto = subtotal * (descontoPerc / 100);
   const totalFinal = subtotal - valorDesconto + acrescimo;
@@ -3499,7 +3510,7 @@ function displayResults(totais, totalServicos, mat) {
       if (acrescEl) acrescEl.textContent = '+' + formatBRL(totais.acrescimo);
     }
   }
-  showScreen('screen-results');
+  switchMainTab('results');
   updateFloatingButton();
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
@@ -3525,7 +3536,7 @@ function calculateQuote() {
   const totaisSemMat = computeTotals(totalServicos, 0);
   currentQuote = {
     id: Date.now(),
-    seq: appState.orcamentoSeq++,
+    seq: appState.orcamentoSeq,
     tipo, prestador, cliente, endereco, telefone,
     detalhes: [detGeral, detalhes, detMat].filter(Boolean).join(' · '),
     data: dataFmt, dataRaw, hora,
@@ -3547,9 +3558,6 @@ function calculateQuote() {
     garantia,
     garantiaStr: garantia + ' dias',
   };
-  // Reset material mode to default
-  _matMode = 'eletricista';
-  setMatMode('eletricista');
   saveClient(cliente, telefone, endereco);
   saveToHistory(currentQuote);
   saveState();
@@ -3801,7 +3809,6 @@ async function sharePDF() {
     const er = elem.getBoundingClientRect();
     const cr = container.getBoundingClientRect();
     const pxToMm = 25.4 / 96; // 96dpi padrão
-    const scaleX = 186 / (cr.width || 1); // área útil / largura do container
     const x = 12 + (er.left - cr.left) * pxToMm * (186 / (cr.width * pxToMm));
     const y = 12 + (er.top  - cr.top)  * pxToMm * (297 / (cr.height * pxToMm || 297));
     const w = er.width  * pxToMm * (186 / (cr.width * pxToMm));
@@ -3877,25 +3884,6 @@ function fallbackCopy(text, cb) {
   document.body.removeChild(ta);
 }
 
-function showScreen(id) {
-  ['screen-home','screen-input','screen-results','screen-agenda','screen-historico'].forEach(sid => {
-    document.getElementById(sid)?.classList.remove('active');
-  });
-  document.getElementById(id)?.classList.add('active');
-  window.scrollTo({top:0, behavior:'smooth'});
-  // Sync bottom nav
-  const allBtns = ['bnav-home','bnav-orcamento','bnav-agenda','bnav-historico'];
-  allBtns.forEach(b => { const el = document.getElementById(b); if(el) el.className = 'bottom-nav-btn'; });
-  if (id === 'screen-home') {
-    document.getElementById('bnav-home').className = 'bottom-nav-btn active';
-  } else if (id === 'screen-input' || id === 'screen-results') {
-    document.getElementById('bnav-orcamento').className = 'bottom-nav-btn active';
-  } else if (id === 'screen-agenda') {
-    document.getElementById('bnav-agenda').className = 'bottom-nav-btn active-agenda';
-  } else if (id === 'screen-historico') {
-    document.getElementById('bnav-historico').className = 'bottom-nav-btn active-historico';
-  }
-}
 
 function resetForm() {
   const sc = document.getElementById('srv-container');
@@ -3963,6 +3951,7 @@ function applyUIFromState() {
   applyLogoUI();
   const npEl = document.getElementById('nomePrestador');
   if (npEl) npEl.value = appState.prestadorPadrao || '';
+  _matMode = appState.matMode || 'eletricista';
   applyTheme();
 }
 
@@ -4623,15 +4612,15 @@ function renderHomeScreen() {
 }
 
 function switchMainTab(tab) {
-  const screens = { home: 'screen-home', orcamento: 'screen-input', agenda: 'screen-agenda', historico: 'screen-historico' };
+  const screens = { home: 'screen-home', orcamento: 'screen-input', results: 'screen-results', agenda: 'screen-agenda', historico: 'screen-historico' };
   const screenId = screens[tab] || 'screen-home';
   ['screen-home','screen-input','screen-results','screen-agenda','screen-historico'].forEach(sid => {
     document.getElementById(sid)?.classList.remove('active');
   });
   document.getElementById(screenId)?.classList.add('active');
   window.scrollTo({top:0, behavior:'smooth'});
-  document.getElementById('bnav-home').className      = 'bottom-nav-btn' + (tab === 'home'      ? ' active' : '');
-  document.getElementById('bnav-orcamento').className = 'bottom-nav-btn' + (tab === 'orcamento' ? ' active' : '');
+  document.getElementById('bnav-home').className      = 'bottom-nav-btn' + (tab === 'home'                    ? ' active' : '');
+  document.getElementById('bnav-orcamento').className = 'bottom-nav-btn' + ((tab === 'orcamento' || tab === 'results') ? ' active' : '');
   document.getElementById('bnav-agenda').className    = 'bottom-nav-btn' + (tab === 'agenda'    ? ' active-agenda' : '');
   document.getElementById('bnav-historico').className = 'bottom-nav-btn' + (tab === 'historico' ? ' active-historico' : '');
   if (tab === 'home') { renderHomeScreen(); }
@@ -4931,6 +4920,8 @@ let _matMode = 'eletricista'; // 'eletricista' | 'cliente' | 'nenhum'
 
 function setMatMode(mode) {
   _matMode = mode;
+  appState.matMode = mode;
+  saveState();
   // Update button styles
   const opts = {
     eletricista: document.getElementById('mat-opt-eletricista'),
@@ -4954,7 +4945,7 @@ function setMatMode(mode) {
   });
   // Recalculate displayed total
   if (currentQuote) {
-    const mat = currentQuote.matBruto || currentQuote.mat || 0;
+    const mat = currentQuote.mat || 0; // mat já inclui custoPecasExtra
     const total = mode === 'eletricista'
       ? currentQuote.totalComMat
       : currentQuote.totalSemMat;
