@@ -6789,12 +6789,13 @@ function renderGarantias() {
 // var (não const/let) garante acesso global entre todos os blocos de script
 try {
   var _fbApp  = firebase.initializeApp({
-    apiKey:            "AIzaSyCUoVzr9_PIGZXe1DKBZaINNCVQVj14Iqk",
-    authDomain:        "eletricista-pro.firebaseapp.com",
-    projectId:         "eletricista-pro",
-    storageBucket:     "eletricista-pro.firebasestorage.app",
-    messagingSenderId: "184661625796",
-    appId:             "1:184661625796:web:18c38153a0a2621025b291"
+    apiKey:            "AIzaSyBsws-hQkcJQOLKJvYhz2yZ43AZiu9Rsus",
+    authDomain:        "eletricista-power.firebaseapp.com",
+    databaseURL:       "https://eletricista-power-default-rtdb.firebaseio.com",
+    projectId:         "eletricista-power",
+    storageBucket:     "eletricista-power.firebasestorage.app",
+    messagingSenderId: "111779689903",
+    appId:             "1:111779689903:web:3999844c7ccaa1ec71ab5a"
   });
   var _fbAuth = firebase.auth();
   _fbAuth.onAuthStateChanged(function(user) {
